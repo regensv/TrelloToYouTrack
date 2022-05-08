@@ -15,26 +15,28 @@ def main():
                                migration_dict["trello.board"], migration_dict["trello.list"],
                                attachments=attachments, users=users, comments=comments)
 
-        youtrack_client = YouTrack(migration_dict["youtrack.login"], migration_dict["youtrack.password"],
+        youtrack_client = YouTrack(migration_dict["trello.key"], migration_dict["trello.token"],
+                                   migration_dict["youtrack.login"], migration_dict["youtrack.password"],
                                    migration_dict["youtrack.link"], migration_dict["youtrack.project"])
 
         if users:
-            print 'Loading users from trello...'
+            print('Loading users from trello...')
             trello_users = trello_client.get_users()
-            print '√ Done loading users\n'
+            print('√ Done loading users\n')
 
-            print 'Importing users to Youtrack...'
+            print('Importing users to Youtrack...')
             youtrack_client.import_users(trello_users)
-            print '√ Done importing users\n'
+            print('√ Done importing users\n')
 
-        print 'Loading cards from trello...'
+        print('Loading cards from trello...')
         trello_cards = trello_client.get_cards()
-        print '√ Done loading cards\n'
+        print('√ Done loading cards\n')
 
-        print 'Importing issues to Youtrack...'
+        print('Importing issues to Youtrack...')
         youtrack_client.import_issues(trello_cards, migration_dict["mappings"],
                                       int(migration_dict["youtrack.startNumberInProject"]),
                                       attachments=attachments, comments=comments)
-        print '√ All done!'
+        print('√ All done!')
+
 if __name__ == "__main__":
     main()

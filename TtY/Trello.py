@@ -16,8 +16,8 @@ class Trello:
         self.comments = comments
 
     def _get_board_and_list_id(self, board_name, list_name):
-        request_url = 'https://api.trello.com/1/members/me/boards?fields=name&lists=all&list_fields=name?members=true' \
-                      '&members_fields=&key=%s&token=%s' % (self.trello_key, self.trello_token)
+        request_url = 'https://api.trello.com/1/members/me/boards?fields=name&lists=all&list_fields=name' \
+                      '&key=%s&token=%s' % (self.trello_key, self.trello_token)
         response = requests.get(request_url)
 
         boards = response.json()
@@ -58,23 +58,23 @@ class Trello:
         if self.cards:
             return self.cards
         # TODO add fields from specs file
-        request_url = "https://api.trello.com/1/lists/%s/cards?fields?fields=all" % \
+        request_url = "https://api.trello.com/1/lists/%s/cards?fields=all" % \
                       (self.trello_list_id,)
+        request_url += "&key=%s&token=%s" % (self.trello_key, self.trello_token)
         if self.attachments:
             request_url += "&attachments=true"
-        # TODO check getting comments too.
-        request_url += "&key=%s&token=%s" % (self.trello_key, self.trello_token)
-        response = requests.get(request_url)
+        headers = {'Accept': 'application/json'}
+        response = requests.get(request_url, headers=headers)
 
         self.cards = response.json()
         if self.users:
-            print 'Loading members for cards...'
+            print('Loading members for cards...')
             self._get_members(self.cards)
-            print '√ Done loading members for cards\n'
+            print('√ Done loading members for cards\n')
         if self.comments:
-            print 'Loading comments for cards...'
+            print('Loading comments for cards...')
             self._get_comments(self.cards)
-            print '√ Done loading comments for cards\n'
+            print('√ Done loading comments for cards\n')
         return self.cards
 
     def _get_members(self, cards):
@@ -89,7 +89,7 @@ class Trello:
     def _get_comments(self, cards):
         for card in cards:
             comments_response = requests.get("https://api.trello.com/1/cards/%s/actions?"
-                                             "filter=commentCard&key=%s&token=%s" % (card["id"],
+                                             "filter=commentCard,copyCommentCard&key=%s&token=%s" % (card["id"],
                                                                                      self.trello_key,
                                                                                      self.trello_token))
             comments = comments_response.json()

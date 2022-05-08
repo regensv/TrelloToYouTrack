@@ -1,11 +1,14 @@
 # coding=UTf-8
 from datetime import datetime
 import requests
+import json
+import base64
 
 
 class YouTrack:
-    def __init__(self, youtrack_login, youtrack_password, youtrack_link, youtrack_project,
-                 youtrack_subsystem=None):
+    def __init__(self, trello_key, trello_token, youtrack_login, youtrack_password, youtrack_link, youtrack_project, youtrack_subsystem=None):
+        self.trello_key = trello_key
+        self.trello_token = trello_token
         self.youtrack_login = youtrack_login
         self.youtrack_password = youtrack_password
         self.youtrack_link = youtrack_link
@@ -13,23 +16,54 @@ class YouTrack:
         self.youtrack_subsystem = youtrack_subsystem
 
     def import_issues(self, trello_cards, mapping_dict, number_in_project, attachments=False, comments=False):
-        xml_string = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        xml_string += '<issues>\n'
-        issues_strings, attachments_dict = self._issues_string(trello_cards, mapping_dict, attachments, comments,
-                                                               number_in_project)
-        xml_string += issues_strings
-        xml_string += '</issues>'
+        for card in trello_cards:
+            attachmentsArray = {}
+            commentsArray = []
 
-        import_url = '%s/rest/import/%s/issues' % (self.youtrack_link, self.youtrack_project)
-        headers = {'Content-Type': 'application/xml'}
+            if attachments:
+                for attachment in card["attachments"]:
+                    if attachment["isUpload"]:
+                        headers = {'Authorization': 'OAuth oauth_consumer_key="%s", oauth_token="%s"' % (self.trello_key, self.trello_token)}
+                        response = requests.get(attachment["url"], headers=headers)
+                        filePath = 'files/' + attachment['name']
+                        file = open(filePath, 'wb')
+                        file.write(response.content)
+                        file.close()
+                        attachmentsArray[attachment["name"]] = filePath
+                    else:
+                        card["desc"] += "\n" + attachment["url"]
 
-        response = requests.put(import_url, auth=(self.youtrack_login, self.youtrack_password),
-                                headers=headers, data=xml_string.decode('utf-8'))
+            if comments:
+                commentsArray = [{"text": comment["text"], "usesMarkdown": True} for comment in card["comments"]]
 
-        print '√ Done Importing cards to Youtrack'
-        print 'Importing attachments...'
-        self._import_attachments(attachments_dict)
-        print '√ Done importing attachment'
+            json_string = json.dumps({
+                "summary": card["name"],
+                "description": card["desc"],
+                "usesMarkdown": True,
+                "comments": commentsArray,
+            })
+
+            import_url = '%s/api/admin/projects/%s/issues?fields=id,idReadable&muteUpdateNotifications=true' % (self.youtrack_link, self.youtrack_project)
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': 'Bearer',
+            }
+            response = requests.post(import_url, auth=(self.youtrack_login, self.youtrack_password),
+                                    headers=headers, data=json_string.encode('utf-8'))
+            print(response.content)
+
+            issue = response.json()
+            attachmentUrl = '%s/api/issues/%s/attachments?fields=id,name' % (self.youtrack_link, issue["id"])
+            headers = {
+                'Authorization': 'Bearer',
+            }
+            for name in attachmentsArray:
+                with open(attachmentsArray[name], 'rb') as file:
+                    response = requests.post(attachmentUrl, auth=(self.youtrack_login, self.youtrack_password), headers=headers, files={name: file})
+                    print(response.content)
+
+        print('√ Done Importing cards to Youtrack')
 
     def import_users(self, trello_users):
         xml_string = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -43,93 +77,6 @@ class YouTrack:
         response = requests.put(self.youtrack_link + "/rest/import/users", data=xml_string.decode('utf-8'),
                                 headers=headers, auth=(self.youtrack_login, self.youtrack_password))
 
-    def _issues_string(self, trello_cards, mapping_dict, attachments, comments, number_in_project):
-        issue_string = '\n'
-        attachments_dict = dict()
-        for card in trello_cards:
-            issue_string += '<issue>\n'
-            issue_string += self._get_issue_fields(mapping_dict, card, comments, number_in_project)
-            issue_string += '</issue>\n'
-            # TODO: refactor that attachment out of this method
-            if attachments:
-                card_attachments = []
-                for attachment in card["attachments"]:
-                    response = requests.get(attachment["url"])
-                    card_attachments.append((attachment["name"], response.content))
-                if card_attachments:
-                    attachments_dict[self.youtrack_project + '-' + unicode(number_in_project)] \
-                        = card_attachments
-            number_in_project += 1
-        return issue_string, attachments_dict
-
-    def _import_attachments(self, attachments_dict):
-        for issue_name in attachments_dict.keys():
-            files_data = attachments_dict[issue_name]
-            for file_data in files_data:
-                response = requests.post(self.youtrack_link + "/rest/import/%s/attachment"
-                                                              "?authorLogin=%s&created=%s" %
-                                         (issue_name, self.youtrack_login, self._time_now()),
-                                         files={'file': file_data},
-                                         auth=(self.youtrack_login, self.youtrack_password))
-
-    def _get_issue_fields(self, mapping_dict, card, comments, number_in_project):
-        fields = ''
-        fields += self._field_string('created', self._time_now()) + '\n'
-        fields += self._field_string('reporterName', self.youtrack_login) + '\n'
-        fields += self._field_string('numberInProject', number_in_project) + '\n'
-        if card.has_key("members"):
-            fields += self._field_string('watcherName', *[member["username"] for member in card["members"]])
-        if comments:
-            fields += self._comments_fields(card)
-
-        for mapping_key in mapping_dict.keys():
-            mapping_value = mapping_dict[mapping_key]
-            # TODO make sure that no trello. exist without being in the supported keys
-            if 'trello.' in mapping_value:
-                trello_key = mapping_value[len('trello.'):]
-                fields += self._field_string(mapping_key[len('youtrack.'):], card[trello_key])
-
-            elif type(mapping_value) is dict:
-                for value in mapping_value.keys():
-                    conditions_dict = mapping_value[value]
-                    all_conditions_satisfied = True
-                    for condition in conditions_dict.keys():
-                        condition_value = conditions_dict[condition]
-                        trello_condition_key = condition[len('trello.'):]
-                        if card[trello_condition_key] != condition_value:
-                            all_conditions_satisfied = False
-                            break
-                    if all_conditions_satisfied:
-                        fields += self._field_string(mapping_key[len('youtrack.'):], value)
-            else:
-                fields += self._field_string(mapping_key[len('youtrack.'):], mapping_value)
-            fields += '\n'
-        if self.youtrack_subsystem:
-            fields += self._field_string('subsystem', self.youtrack_subsystem) + '\n'
-        return fields
-
-    @staticmethod
-    def _field_string(name, *value):
-        return (
-            '<field name="%s">' % (name,) +
-            '\n'.join('   <value>%s</value>' % (single_value, ) for single_value in value) +
-            '</field>'
-        )
-
-    @staticmethod
-    def _comments_fields(card):
-        return (
-            '\n'.join('<comment author="%s" text="%s" created="%s"/>' %
-                      (comment["author"], comment["text"], YouTrack.time_to_epoch(comment["created"]))
-                      for comment in card["comments"])
-        )
-
     @staticmethod
     def _time_now():
         return str(int(datetime.now().strftime("%s")) * 1000)
-
-    @staticmethod
-    def time_to_epoch(date_string):
-        epoch = datetime(1970, 1, 1)
-        time_now = datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ")
-        return str(int((time_now - epoch).total_seconds()) * 1000)

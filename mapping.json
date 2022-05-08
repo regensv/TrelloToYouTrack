@@ -5,6 +5,7 @@
   "trello.list": "TRELLO.LIST",
   "youtrack.login": "YOUTRACK.LOGIN",
   "youtrack.password": "YOUTRACK.PASSWORD",
+  "youtrack.auth_header": "Bearer perm:xxx",
   "youtrack.link": "YOUTRACK.LINK",
   "youtrack.project": "YOUTRACK.PROJECT",
   "youtrack.startNumberInProject": 1,
@@ -22,6 +23,6 @@
         "trello.closed": true
       }
     },
-    "youtrack.type": "Epic"
+    "youtrack.type": "Task"
   }
 }
